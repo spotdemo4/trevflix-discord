@@ -1,0 +1,15 @@
+version: '3.9'
+
+services:
+  tracker-stats:
+    build:
+      context: .
+    container_name: trevflix-discord
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      SONARR_URL: ${SONARR_URL}
+      SONARR_API_KEY: ${SONARR_API_KEY}
+      RADARR_URL: ${RADARR_URL}
+      RADARR_API_KEY: ${RADARR_API_KEY}
+      DISCORD_CHANNEL_ID: ${DISCORD_CHANNEL_ID}
+    restart: unless-stopped
