@@ -1,8 +1,8 @@
 import discord
 import os
 import math
-import time
-import asyncio
+import re
+from discord.ext import tasks
 from pyarr import SonarrAPI
 from pyarr import RadarrAPI
 from dotenv import load_dotenv
@@ -26,35 +26,34 @@ def get_progressbar(percentage):
             progressbar += '⣀'
     return progressbar
 
-async def start(message):
-    while True:
-        sonarr_queue = sonarr.get_queue()
-        radarr_queue = radarr.get_queue()
-        
-        msg = ''
-        if sonarr_queue['records']:
-            queue = sonarr_queue['records']
-            for item in queue:
-                percentage = math.floor((item['size'] - item['sizeleft']) / item['size'] * 10)
-                progressbar = get_progressbar(percentage)
-                status = "Importing" if item['status'] == 'completed' else item['status'].capitalize()
-                msg += f'{item["title"]}\n{progressbar} [{item["timeleft"]}] {status}\n\n'
-
-        if radarr_queue['records']:
-            queue = radarr_queue['records']
-            for item in queue:
-                percentage = math.floor((item['size'] - item['sizeleft']) / item['size'] * 10)
-                progressbar = get_progressbar(percentage)
-                status = "Importing" if item['status'] == 'completed' else item['status'].capitalize()
-                msg += f'{item["title"]}\n{progressbar} [{item["timeleft"]}] {status}\n\n'
-        
-        if not msg:
-            msg = '```No downloads in queue```'
+def append_message(message, queue):
+    for item in queue:
+        percentage = math.floor((item['size'] - item['sizeleft']) / item['size'] * 10)
+        progressbar = get_progressbar(percentage)
+        state = ' '.join(map(lambda x: x.capitalize(), re.findall('[a-zA-Z][^A-Z]*', item['trackedDownloadState'])))
+        if item['trackedDownloadStatus'] == 'ok':
+            message += f'{item["title"]}\n\u001b[0;32m{progressbar} [{item["timeleft"]}] \u001b[1;33m{state}\u001b[0;0m\n\n'
         else:
-            msg = '```' + msg + '```'
-        
-        await message.edit(content=msg)
-        await asyncio.sleep(60)
+            message += f'{item["title"]}\n\u001b[0;32m{progressbar} [{item["timeleft"]}] \u001b[1;31m{state}\u001b[0;0m\n\n'
+    return message
+
+@tasks.loop(minutes=1)
+async def edit_message(message):
+    print("Updating message")
+
+    sonarr_queue = sonarr.get_queue()
+    radarr_queue = radarr.get_queue()
+    
+    msg = ''
+    msg = append_message(msg, sonarr_queue['records'])
+    msg = append_message(msg, radarr_queue['records'])
+    
+    if not msg:
+        msg = '```No downloads in queue```'
+    else:
+        msg = '```ansi\n' + msg + '```'
+    
+    await message.edit(content=msg)
 
 @client.event
 async def on_ready():
@@ -65,24 +64,6 @@ async def on_ready():
     async for message in channel.history(limit=200):
         if message.author == client.user:
             print("Found previous message")
-            await start(message)
-
-@client.event
-async def on_message(message):
-    if message.author == client.user:
-        return
-
-    if message.content.startswith('$start'):
-        main_message = await message.channel.send('Starting...')
-
-        await start(main_message)
-    
-    if message.content.startswith('$restart'):
-        channel = client.get_channel(int(os.getenv('DISCORD_CHANNEL_ID')))
-
-        async for message in channel.history(limit=200):
-            if message.author == client.user:
-                print("Found previous message")
-                await start(message)
+            edit_message.start(message)
 
 client.run(os.getenv('DISCORD_TOKEN'))
